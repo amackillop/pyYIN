@@ -299,8 +299,7 @@ def pitchTrackingYIN(fname, freq_range = (40, 300), threshold = 0.1, timestep = 
         Fc: Cutoff frequency of the lowpass filter used in downsampling the signal. Must be less than target_Fs/2.
     
     #Returns
-        local_min_abscissae: A 1-D numpy array containing the interpolated period estimates
-        for each sample.
+        f0: A 2-d numpy array containing the sample number and the ascociated frequency estimate.
     
     #Raises
         Not handed yet.
