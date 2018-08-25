@@ -6,168 +6,57 @@ Created on Fri Feb 23 10:00:39 2018
 
 YIN Algorithm
 """
-from numpy import mean, correlate, asarray, zeros, polyfit, poly1d, float32, int16, frombuffer, ceil
-from numpy import append as npappend
-from numpy import sum as npsum
-from scipy.signal import butter, lfilter
-from wave import open as wavopen
-from array import array
+import numpy as np
+import _tools
 
-def getData(fname):
-    """
-    Get the signal information from a wav file.
-    
-    # Arguments
-        fname: WAV file. Name of the audio file to analyze\n
-
-    # Returns
-        data: A 1-D int16 numpy array containing the information\n
-
-    """
-     #Extract Raw Audio from Wav File
-    sound_file = wavopen(fname, 'r')
-    Fs = sound_file.getframerate()
-    data = sound_file.readframes(-1)
-    data = frombuffer(data, int16)
-    sound_file.close()
-    return data, Fs
-
-def trim(signal, threshold = 1000):
-    """
-    Trim the silence at the beginning and the end of the signal.
-    
-    # Arguments
-        signal: A 1-D int16 numpy array containing the signal\n
-        threshold: A volume threshold for silence detection\n
-
-    # Returns
-        signal: A 1-D int16 numpy array containing the trimmed signal\n
-
-    # Raises
-        None
-    """
-    # This nested function allows for a simple way to run this function twice for
-    # the beginning and the end.
-    def _trim(x):
-        snd_started = False
-        arr = array('h')
-
-        for i in signal:
-            if not snd_started and abs(i) > threshold:
-                snd_started = True
-                arr.append(i)
-
-            elif snd_started:
-                arr.append(i)
-        return arr
-
-    # Trim the beginning
-    signal = _trim(signal)
-
-    # Trim the end
-    signal.reverse()
-    signal = _trim(signal)
-    signal.reverse()
-    signal = asarray(signal, int16)
-    
-    return signal
-
-def butterLowpassFilter(signal, cutoff, Fs, order = 6):
-    """
-    Implementing a buttersworth lowpass filter
-    
-    # Arguments
-        signal: A 1-D numpy array containing the signal \n
-        cutoff: Cutoff frequency for the lowpass filter \n
-        Fs: Sampling rate of the signal \n
-        order: Order of the lowpass filter\n
-
-    # Returns
-        None
-
-    # Raises
-        None
-    """
-    nyq = 0.5 * Fs
-    normal_cutoff = cutoff / nyq
-    b, a = butter(order, normal_cutoff, btype='low', analog=False)
-    signal = lfilter(b, a, signal)
-    return signal.astype(int16)
-
-def downSample(signal, cutoff, Fs, order, step):
-    """
-    Downsample the signal by a specified integer amount. Note that the target dampling rate
-    must be a factor of the original. For example, you cannot use this to downsample 44.1k to 16k.
-    
-    # Arguments
-        signal: A 1-D numpy array containing the signal \n
-        cutoff: Cutoff frequency for the lowpass filter \n
-        Fs: Sampling rate of the original signal \n
-        order: The order of the buttersworth filter. Higher order produces a 
-        sharper cutoff.\n
-        step: Integer specificying the decimation rate. a step of 2 means throwing away
-        every other sample which halves the sampling rate.\n
-
-    # Returns
-        signal: A 1-D numpy array containing the downsampled signal.\n
-
-    """
-    butterLowpassFilter(signal, cutoff, Fs, order)
-    signal = signal[0::step]
-    return signal
-
-def crossCorr(x, tau, W, auto = False):
+def auto_correlate(x, tau, W):
     """
     Autocorrelation, Step 1, Eq. (1)
     
-    Computes the cross correlation between a signal and a shifted version. If auto = True, 
-    computes the auto correlation of the signal shifted by tau.
+    Computes the auto correlation of the signal shifted by tau.
     
-    # Arguments
-        x: A 1-D numpy array containing the signal\n
-        tau: Integer sample lag\n
-        W: Integer integration window size.\n
-        auto: Boolean, set True for autocorrelation\n
+    Arguments
+    ---------
+    x : ndarray
+        A 1-D numpy array containing the signal
+    tau : int
+        Sample shift
+    W : int
+        Integration window size.
         
-    # Returns
-        cross_corr_mat: A 2-D numpy array of the correlation function for each sample. 
-        Each row corresponds to a sample.\n
+    Returns
+    -------
+    autocorr_mat : ndarray
+        A 2-D numpy array of the correlation function for each sample. 
+        Each row corresponds to a sample.
     """
     
-    # Initialize corss correlation matrix
-    cross_corr_mat = zeros((x.size//(2*W), W), float32)
-    
+    # Initialize cross correlation matrix
+    autocorr_mat = np.zeros((x.size//(2*W), W), np.float32)
     # Store original signal
     x_orig = list(x)
     
-    for i in range(cross_corr_mat.shape[0]):
+    for i in range(autocorr_mat.shape[0]):
         t = 2*i*W
         # Unbias the signals
-        x = x_orig[t:W+t] - mean(x_orig[t:W+t])
-        x_tau = x_orig[t+tau:t+tau+W] - mean(x_orig[t+tau:t+tau+W])
-        
+        x = x_orig[t:W+t] - np.mean(x_orig[t:W+t])
+        x_tau = x_orig[t+tau:t+tau+W] - np.mean(x_orig[t+tau:t+tau+W])
         if len(x_tau) == 0:
             # We reached the end
             break
         
-        if (auto == False):
-            # Cross correlation
-            cross_corr = correlate(x, x_tau, 'full')
-            cross_corr_mat[i,:] = cross_corr[cross_corr.shape[0]//2:]
-            
-        else:
-            # Auto correlation
-            cross_corr = correlate(x_tau, x_tau, 'full')
-            try:
-                cross_corr_mat[i,:] = cross_corr[cross_corr.shape[0]//2:]
-            except:
-                cross_corr_mat[i,:] = npappend(cross_corr[cross_corr.shape[0]//2:], zeros((1, W-cross_corr[cross_corr.shape[0]//2:].size), float32))
+        # Auto correlation
+        autocorr = np.correlate(x_tau, x_tau, 'full')
+        try:
+            autocorr_mat[i, :] = autocorr[autocorr.shape[0]//2:]
+        except:
+            padding = np.zeros((1, W-autocorr[autocorr.shape[0]//2:].size), np.float32)
+            autocorr_mat[i, :] = np.append(autocorr[autocorr.shape[0]//2:], padding)
                 
+    return autocorr_mat
 
-    return cross_corr_mat
 
-
-def diffEquation(x, W):
+def diff_equation(x, W):
     """
     Difference Equation, Step 2, Eq. (7)\n
     
@@ -183,17 +72,17 @@ def diffEquation(x, W):
     """
     
     # Get the autocorrelation matrix
-    auto_corr_mat = crossCorr(x, 0, W, auto = True)
-    
+    auto_corr_mat = auto_correlate(x, 0, W, auto = True)
     # Initialize difference equation matrix
-    diff_eq_mat = zeros(auto_corr_mat.shape, float32)
-    
+    diff_eq_mat = np.zeros(auto_corr_mat.shape, np.float32)
     for i in range(0, diff_eq_mat.shape[0]):
         # Implement Equation (7) from the paper
-        diff_eq_mat[i,:] = auto_corr_mat[i, 0] + crossCorr(x, i, W, auto = True)[i, 0] - 2 * auto_corr_mat[i,:]
+        diff_eq_mat[i,:] = (auto_corr_mat[i, 0]
+                            + auto_correlate(x, i, W, auto = True)[i, 0]
+                            - 2 * auto_corr_mat[i,:])
     return diff_eq_mat
 
-def cumMeanNormDiffEq(x, W):
+def cum_mean_norm_diff_eq(x, W):
     """
     Cumulative Mean Normal Difference Equation, Step 3, Eq. (8)\n
     
@@ -209,12 +98,10 @@ def cumMeanNormDiffEq(x, W):
     """
     
     # Get the difference equation matrix
-    diff_eq_mat = diffEquation(x, W)
-    
+    diff_eq_mat = diff_equation(x, W)
     # Initialize cumulative mean normal difference matrix
-    cum_diff_mat = zeros(diff_eq_mat.shape, float32)
+    cum_diff_mat = np.zeros(diff_eq_mat.shape, np.float32)
     cum_diff_mat[:, 0] = 1
-    
     # Implement Eq. (8) from the paper
     for t in range(diff_eq_mat.shape[0]):
         for j in range(1, diff_eq_mat.shape[1]):
@@ -237,7 +124,7 @@ def absoluteThresold(x, freq_range = (40, 300), threshold = 0.1, Fs = 16e3, W = 
     
     #Returns
         taus: A 1-D numpy array containing the candidate period estimates for each sample.\n
-        cum_diff_mat: A 2-D numpy array, see documentaion for `cumMeanNormDiffEq`.\n
+        cum_diff_mat: A 2-D numpy array, see documentaion for `cum_mean_norm_diff_eq`.\n
     """
     
     # Set search range
@@ -247,8 +134,8 @@ def absoluteThresold(x, freq_range = (40, 300), threshold = 0.1, Fs = 16e3, W = 
     minimum = 1e9
     
     # Get the cumulative mean norm difference (CMND) matrix and initialize list of taus
-    cum_diff_mat = cumMeanNormDiffEq(x, W)
-    taus = zeros(cum_diff_mat.shape[0], int16)
+    cum_diff_mat = cum_mean_norm_diff_eq(x, W)
+    taus = np.zeros(cum_diff_mat.shape[0], np.int16)
     
     # Implement the search as specified in step 4 of the paper
     for i in range(taus.size):
@@ -290,27 +177,27 @@ def parabolicInterpolation(diff_matrix, taus, freq_range, Fs):
     """
     
     # Initialize coordinates for interpolation
-    abscissae = zeros((len(taus)-2, 3), float32)
-    ordinates = zeros(abscissae.shape, float32)
+    abscissae = np.zeros((len(taus)-2, 3), np.float32)
+    ordinates = np.zeros(abscissae.shape, np.float32)
     
     # Interpolation uses the minimum and its two adjacent points
     for i, tau in enumerate(taus[1:-1]):
         ordinates[i-1] = diff_matrix[i, tau-1:tau+2]
-        abscissae[i-1] = asarray([tau-1, tau, tau+1], float32)
+        abscissae[i-1] = np.asarray([tau-1, tau, tau+1], np.float32)
     
     # Initalize period estimates    
     period_min = int(Fs)//freq_range[1]
     period_max = int(Fs)//freq_range[0]
     
     # Initialize parabolic equation coefficients and local min abscissae
-    coeffs = zeros((len(taus)-2, 3))
-    local_min_abscissae = zeros(coeffs.shape[0])
+    coeffs = np.zeros((len(taus)-2, 3))
+    local_min_abscissae = np.zeros(coeffs.shape[0])
     
     # Implement the parabolic interpolation
     for i in range(0, len(taus)-2):
         # Fit the parabola to each set of three points and take the derivative
-        coeffs[i] = polyfit(abscissae[i,:], ordinates[i,:], 2)
-        p = poly1d(coeffs[i]).deriv()
+        coeffs[i] = np.polyfit(abscissae[i,:], ordinates[i,:], 2)
+        p = np.poly1d(coeffs[i]).deriv()
         
         # If the root of the derivative is within our range, select it
         if p.roots > period_min and p.roots < period_max:
@@ -322,9 +209,51 @@ def parabolicInterpolation(diff_matrix, taus, freq_range, Fs):
         
     return local_min_abscissae
 
-def pitchTrackingYIN(fname, freq_range = (40, 300), threshold = 0.1, timestep = 0.1, target_Fs = 16e3, Fc = 1e3):
+def preprocess(signal, Fs, window, target_Fs=16e3, timestep=0.1):
+    # Downsample signal if desired to improve speed
+    step = int(Fs//target_Fs)
+    if not step == 1:
+        signal = _tools.downsample(signal, 1e3, Fs, step)
+        Fs = int(target_Fs)
+
+    # Remove silence from beginning and end of the file to improve speed
+    signal = np.asarray(_tools.trim(signal)).astype(np.float32)
+    
+    # The idea here is to keep only what we need to analyze.
+    # If we are going to track frequency every 25ms, then we don't need the 
+    # information in between these points outside of the integration window.
+    W = window
+    sampled_signal = np.zeros(((signal.size//int(Fs*timestep)),2*W), np.float32)
+    if sampled_signal.shape[0] < 5:
+        raise RuntimeError("Signal is too short or possibly too quiet.")
+        
+    for i in range((signal.size//int(Fs*timestep))):
+        t = int(i*Fs*timestep)
+        sampled_signal[i,:] = signal[t:int(t+2*W)]/max(signal[t:int(t+2*W)])
+        
+    sampled_signal = sampled_signal.flatten()
+
+    # This new signal has been minimized in length and normalized, preprocessing is finished
+    signal = sampled_signal
+    if len(signal) > 0:
+        pass
+    else:
+        raise ValueError("Detected a silent file")
+        
+    return signal, Fs
+
+def get_estimates(signal, Fs, periods, window):
+    W = window
+    # Minues 2 because the interpolation throws away two estimates
+    estimates = np.zeros((int(signal.size/(2*W)-2), 1), np.int16)
+    for i in range(int(signal.size/(2*W)-2)):
+        estimates[i] = Fs//periods[i]
+    return estimates
+        
+def yin_algorithm(fname, threshold=0.1, target_Fs=16e3, freq_range=(40, 300), timestep=0.1, Fc=1e3):
     """
-    Putting it all together, this function is my implementation the the YIN pitch detection algorithm. 
+    Putting it all together, this function is my implementation the the YIN pitch 
+    detection algorithm. 
     
     #Arguments
         fname: The name of a WAV file to be analyzed.\n
@@ -342,51 +271,17 @@ def pitchTrackingYIN(fname, freq_range = (40, 300), threshold = 0.1, timestep = 
         ValueError: If a silent audio file is used.\n
         RuntimeError: If there are not enough points for parabolic interpolation
     """
-    
     # Extract signal from audio file
-    signal, Fs = getData(fname)
-
-    # Downsample signal if desired to improve speed
-    step = int(Fs//target_Fs)
-    if not step == 1:
-        signal = downSample(signal, 1e3, Fs, step)
-        Fs = int(target_Fs)
-
-    # Remove silence from beginning and end of the file to improve speed
-    signal = asarray(trim(signal))
-    signal = signal.astype(float32)
-
+    signal, Fs = _tools.getdata(fname)
     # Integration window is dependent on the lowest frequency to be detected
-    W = int(ceil(Fs/freq_range[0]))
-    
-    # The idea here is to keep only what we need to analyze.
-    # If we are going to track frequency every 25ms, then we don't need the information in between
-    # these points outside of the integration window.
-    sampled_signal = zeros(((signal.size//int(Fs*timestep)),2*W), float32)
-    if sampled_signal.shape[0] < 5:
-        raise RuntimeError("Speech is too short or possibly too quiet.")
-        
-    for i in range((signal.size//int(Fs*timestep))):
-        t = int(i*Fs*timestep)
-        sampled_signal[i,:] = signal[t:int(t+2*W)]/max(signal[t:int(t+2*W)])
-        
-    sampled_signal = sampled_signal.flatten()
+    window = int(np.ceil(Fs/freq_range[0]))
+    signal, Fs = preprocess(signal, Fs, target_Fs, window, threshold, freq_range, timestep)
 
-    # This new signal has been minimized in length and normalized, preprocessing is finished
-    signal = sampled_signal
-    if len(signal) > 0:
-        pass
-    else:
-        raise ValueError("Detected a silent file")
-    
 
     # Now apply the algorithm, note that step 6 is still missing
-    taus = absoluteThresold(signal, freq_range, threshold, Fs, W = W)[0]
-    diff_mat = diffEquation(signal, W)
+    taus = absoluteThresold(signal, freq_range, threshold, Fs, window = window)[0]
+    diff_mat = diff_equation(signal, window)
     periods = parabolicInterpolation(diff_mat, taus, freq_range, Fs)
-    
-    # Minues 2 because the interpolation throws away two estimates
-    f = zeros((int(signal.size/(2*W)-2), 1), int16)
-    for i in range(int(signal.size/(2*W)-2)):
-        f[i] = Fs//periods[i]
-    return f
+    estimates = get_estimates(signal, Fs, periods, window)
+
+    return estimates
