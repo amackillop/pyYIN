@@ -72,13 +72,13 @@ def diff_equation(x, W):
     """
     
     # Get the autocorrelation matrix
-    auto_corr_mat = auto_correlate(x, 0, W, auto = True)
+    auto_corr_mat = auto_correlate(x, 0, W)
     # Initialize difference equation matrix
     diff_eq_mat = np.zeros(auto_corr_mat.shape, np.float32)
     for i in range(0, diff_eq_mat.shape[0]):
         # Implement Equation (7) from the paper
         diff_eq_mat[i,:] = (auto_corr_mat[i, 0]
-                            + auto_correlate(x, i, W, auto = True)[i, 0]
+                            + auto_correlate(x, i, W)[i, 0]
                             - 2 * auto_corr_mat[i,:])
     return diff_eq_mat
 
